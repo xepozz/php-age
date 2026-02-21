@@ -1,0 +1,17 @@
+{
+    "name": "xepozz/php-age",
+    "autoload": {
+        "psr-4": {
+            "Xepozz\\PhpAge\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Dmitriy Derepko",
+            "email": "xepozz@list.ru"
+        }
+    ],
+    "require-dev": {
+        "phpunit/phpunit": "^13"
+    }
+}
