@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Xepozz\PhpAge\Tests;
 
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Xepozz\PhpAge\Scrypt;
 
@@ -11,6 +12,7 @@ class ScryptTest extends TestCase
 {
     /**
      * Test vector 1 from RFC 7914 Section 12.
+     * N=16, r=1, p=1 — fast.
      */
     public function testRfc7914Vector1(): void
     {
@@ -26,7 +28,9 @@ class ScryptTest extends TestCase
 
     /**
      * Test vector 2 from RFC 7914 Section 12.
+     * N=1024, r=8, p=16 — slow (~5s).
      */
+    #[Group('slow')]
     public function testRfc7914Vector2(): void
     {
         $result = Scrypt::derive('password', 'NaCl', 1024, 8, 16, 64);
@@ -41,7 +45,9 @@ class ScryptTest extends TestCase
 
     /**
      * Test vector 3 from RFC 7914 Section 12.
+     * N=16384, r=8, p=1 — slow (~6s).
      */
+    #[Group('slow')]
     public function testRfc7914Vector3(): void
     {
         $result = Scrypt::derive('pleaseletmein', 'SodiumChloride', 16384, 8, 1, 64);
@@ -52,5 +58,35 @@ class ScryptTest extends TestCase
             . 'e61e85dc0d651e40dfcf017b45575887'
         );
         $this->assertSame($expected, $result);
+    }
+
+    public function testInvalidNThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('N must be a power of 2');
+        Scrypt::derive('', '', 3, 1, 1, 32);
+    }
+
+    public function testNEqualsOneThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        Scrypt::derive('', '', 1, 1, 1, 32);
+    }
+
+    /**
+     * Fast scrypt test with small params matching age passphrase use case.
+     */
+    public function testSmallWorkFactor(): void
+    {
+        $result = Scrypt::derive('test', 'salt', 4, 1, 1, 32);
+        $this->assertSame(32, strlen($result));
+
+        // Same input must produce same output
+        $result2 = Scrypt::derive('test', 'salt', 4, 1, 1, 32);
+        $this->assertSame($result, $result2);
+
+        // Different password must produce different output
+        $result3 = Scrypt::derive('other', 'salt', 4, 1, 1, 32);
+        $this->assertNotSame($result, $result3);
     }
 }

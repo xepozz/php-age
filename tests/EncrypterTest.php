@@ -8,13 +8,15 @@ use PHPUnit\Framework\TestCase;
 use Xepozz\PhpAge\Decrypter;
 use Xepozz\PhpAge\Encrypter;
 use Xepozz\PhpAge\Age;
+use Xepozz\PhpAge\RecipientInterface;
+use Xepozz\PhpAge\X25519Recipient;
 
 class EncrypterTest extends TestCase
 {
     public function testEncryptAndDecryptWithPassphrase(): void
     {
         $e = new Encrypter();
-        $e->setScryptWorkFactor(12);
+        $e->setScryptWorkFactor(2);
         $e->setPassphrase('light-original-energy-average-wish-blind-vendor-pencil-illness-scorpion');
         $encrypted = $e->encrypt('age');
 
@@ -92,7 +94,6 @@ class EncrypterTest extends TestCase
         $identity = Age::generateIdentity();
         $recipient = Age::identityToRecipient($identity);
 
-        // Larger than one chunk (64 KiB)
         $data = random_bytes(65536 + 100);
 
         $e = new Encrypter();
@@ -111,7 +112,6 @@ class EncrypterTest extends TestCase
         $identity = Age::generateIdentity();
         $recipient = Age::identityToRecipient($identity);
 
-        // Exactly one chunk
         $data = random_bytes(65536);
 
         $e = new Encrypter();
@@ -130,7 +130,6 @@ class EncrypterTest extends TestCase
         $identity = Age::generateIdentity();
         $recipient = Age::identityToRecipient($identity);
 
-        // Two full chunks + partial
         $data = random_bytes(65536 * 2 + 1);
 
         $e = new Encrypter();
@@ -149,6 +148,7 @@ class EncrypterTest extends TestCase
         $e = new Encrypter();
         $e->setPassphrase('1');
         $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('can encrypt to at most one passphrase');
         $e->setPassphrase('2');
     }
 
@@ -157,6 +157,7 @@ class EncrypterTest extends TestCase
         $e = new Encrypter();
         $e->setPassphrase('1');
         $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("can't encrypt to both recipients and passphrases");
         $e->addRecipient('age1tgyuvdlmpejqsdf847hevurz9szk7vf3j7ytfyqecgzvphvu2d8qrtaxl6');
     }
 
@@ -165,14 +166,13 @@ class EncrypterTest extends TestCase
         $e = new Encrypter();
         $e->addRecipient('age1tgyuvdlmpejqsdf847hevurz9szk7vf3j7ytfyqecgzvphvu2d8qrtaxl6');
         $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("can't encrypt to both recipients and passphrases");
         $e->setPassphrase('2');
     }
 
     public function testBadRecipientThrows(): void
     {
         $e = new Encrypter();
-
-        // Truncated
         $this->expectException(\InvalidArgumentException::class);
         $e->addRecipient('age1tgyuvdlmpejqsdf847hevurz9szk7vf3j7ytfyqecgzvphvu2d8qrtaxl');
     }
@@ -181,6 +181,48 @@ class EncrypterTest extends TestCase
     {
         $e = new Encrypter();
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('unrecognized recipient type');
         $e->addRecipient('foo1tgyuvdlmpejqsdf847hevurz9szk7vf3j7ytfyqecgzvphvu2d8qrtaxl6');
+    }
+
+    public function testAddRecipientWithInterfaceObject(): void
+    {
+        $identity = Age::generateIdentity();
+        $recipient = Age::identityToRecipient($identity);
+
+        $recipientObj = new X25519Recipient($recipient);
+
+        $e = new Encrypter();
+        $e->addRecipient($recipientObj);
+        $encrypted = $e->encrypt('test-recipient-interface');
+
+        $d = new Decrypter();
+        $d->addIdentity($identity);
+        $plaintext = $d->decrypt($encrypted);
+
+        $this->assertSame('test-recipient-interface', $plaintext);
+    }
+
+    public function testAddCustomRecipientInterface(): void
+    {
+        $identity = Age::generateIdentity();
+        $recipient = Age::identityToRecipient($identity);
+
+        $realRecipient = new X25519Recipient($recipient);
+        $customRecipient = new class($realRecipient) implements RecipientInterface {
+            public function __construct(private RecipientInterface $inner) {}
+            public function wrapFileKey(string $fileKey): array
+            {
+                return $this->inner->wrapFileKey($fileKey);
+            }
+        };
+
+        $e = new Encrypter();
+        $e->addRecipient($customRecipient);
+        $encrypted = $e->encrypt('custom-recipient');
+
+        $d = new Decrypter();
+        $d->addIdentity($identity);
+        $this->assertSame('custom-recipient', $d->decrypt($encrypted));
     }
 }

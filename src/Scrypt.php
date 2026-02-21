@@ -6,6 +6,9 @@ namespace Xepozz\PhpAge;
 
 /**
  * Pure PHP implementation of scrypt KDF (RFC 7914).
+ *
+ * Performance-optimized: Salsa20/8 is fully inlined with no function calls
+ * in the hot path to minimize PHP overhead.
  */
 final class Scrypt
 {
@@ -26,62 +29,100 @@ final class Scrypt
             throw new \InvalidArgumentException('N must be a power of 2 greater than 1');
         }
 
-        // Step 1: Generate initial data using PBKDF2-HMAC-SHA256
         $B = hash_pbkdf2('sha256', $password, $salt, 1, $p * 128 * $r, true);
 
-        // Step 2: Apply scryptROMix to each block
         for ($i = 0; $i < $p; $i++) {
             $block = substr($B, $i * 128 * $r, 128 * $r);
             $block = self::scryptROMix($block, $r, $N);
             $B = substr($B, 0, $i * 128 * $r) . $block . substr($B, ($i + 1) * 128 * $r);
         }
 
-        // Step 3: Generate output using PBKDF2-HMAC-SHA256
         return hash_pbkdf2('sha256', $password, $B, 1, $dkLen, true);
     }
 
-    /**
-     * scryptROMix from RFC 7914.
-     */
     private static function scryptROMix(string $B, int $r, int $N): string
     {
         $blockSize = 128 * $r;
         $V = [];
 
-        // Step 1-5
         $X = $B;
         for ($i = 0; $i < $N; $i++) {
             $V[$i] = $X;
             $X = self::scryptBlockMix($X, $r);
         }
 
-        // Step 6-9
         for ($i = 0; $i < $N; $i++) {
-            // Integerify: take last 64 bytes of X, interpret first 8 bytes as little-endian
-            $lastBlock = substr($X, $blockSize - 64, 64);
-            $j = unpack('V', substr($lastBlock, 0, 4))[1] % $N;
-            $X = self::scryptBlockMix(($X ^ $V[$j]), $r);
+            $j = unpack('V', $X, $blockSize - 64)[1] & ($N - 1);
+            $X = self::scryptBlockMix($X ^ $V[$j], $r);
         }
 
         return $X;
     }
 
-    /**
-     * scryptBlockMix from RFC 7914.
-     */
     private static function scryptBlockMix(string $B, int $r): string
     {
-        // Split B into 2r 64-byte chunks
-        $chunks = [];
-        for ($i = 0; $i < 2 * $r; $i++) {
-            $chunks[$i] = substr($B, $i * 64, 64);
-        }
+        $r2 = 2 * $r;
 
-        $X = $chunks[2 * $r - 1];
+        // Start with X = last 64-byte chunk
+        $X = substr($B, ($r2 - 1) * 64, 64);
         $Y = [];
 
-        for ($i = 0; $i < 2 * $r; $i++) {
-            $X = self::salsa208($X ^ $chunks[$i]);
+        for ($i = 0; $i < $r2; $i++) {
+            // XOR with chunk inline
+            $chunk = substr($B, $i * 64, 64);
+            $T = $X ^ $chunk;
+
+            // === Inlined Salsa20/8 core ===
+            [, $x0,$x1,$x2,$x3,$x4,$x5,$x6,$x7,$x8,$x9,$x10,$x11,$x12,$x13,$x14,$x15] = unpack('V16', $T);
+            $j0=$x0; $j1=$x1; $j2=$x2; $j3=$x3; $j4=$x4; $j5=$x5; $j6=$x6; $j7=$x7;
+            $j8=$x8; $j9=$x9; $j10=$x10; $j11=$x11; $j12=$x12; $j13=$x13; $j14=$x14; $j15=$x15;
+
+            for ($round = 0; $round < 4; $round++) {
+                // Column round
+                $t = ($x0 + $x12) & 0xffffffff; $x4  ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x4 + $x0)  & 0xffffffff; $x8  ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x8 + $x4)  & 0xffffffff; $x12 ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x12 + $x8) & 0xffffffff; $x0  ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+                $t = ($x5 + $x1)  & 0xffffffff; $x9  ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x9 + $x5)  & 0xffffffff; $x13 ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x13 + $x9) & 0xffffffff; $x1  ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x1 + $x13) & 0xffffffff; $x5  ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+                $t = ($x10 + $x6) & 0xffffffff; $x14 ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x14 + $x10)& 0xffffffff; $x2  ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x2 + $x14) & 0xffffffff; $x6  ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x6 + $x2)  & 0xffffffff; $x10 ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+                $t = ($x15 + $x11)& 0xffffffff; $x3  ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x3 + $x15) & 0xffffffff; $x7  ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x7 + $x3)  & 0xffffffff; $x11 ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x11 + $x7) & 0xffffffff; $x15 ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+
+                // Row round
+                $t = ($x0 + $x3)  & 0xffffffff; $x1  ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x1 + $x0)  & 0xffffffff; $x2  ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x2 + $x1)  & 0xffffffff; $x3  ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x3 + $x2)  & 0xffffffff; $x0  ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+                $t = ($x5 + $x4)  & 0xffffffff; $x6  ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x6 + $x5)  & 0xffffffff; $x7  ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x7 + $x6)  & 0xffffffff; $x4  ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x4 + $x7)  & 0xffffffff; $x5  ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+                $t = ($x10 + $x9) & 0xffffffff; $x11 ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x11 + $x10)& 0xffffffff; $x8  ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x8 + $x11) & 0xffffffff; $x9  ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x9 + $x8)  & 0xffffffff; $x10 ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+                $t = ($x15 + $x14)& 0xffffffff; $x12 ^= (($t << 7) | ($t >> 25)) & 0xffffffff;
+                $t = ($x12 + $x15)& 0xffffffff; $x13 ^= (($t << 9) | ($t >> 23)) & 0xffffffff;
+                $t = ($x13 + $x12)& 0xffffffff; $x14 ^= (($t << 13) | ($t >> 19)) & 0xffffffff;
+                $t = ($x14 + $x13)& 0xffffffff; $x15 ^= (($t << 18) | ($t >> 14)) & 0xffffffff;
+            }
+
+            $X = pack('V16',
+                ($x0+$j0)&0xffffffff, ($x1+$j1)&0xffffffff, ($x2+$j2)&0xffffffff, ($x3+$j3)&0xffffffff,
+                ($x4+$j4)&0xffffffff, ($x5+$j5)&0xffffffff, ($x6+$j6)&0xffffffff, ($x7+$j7)&0xffffffff,
+                ($x8+$j8)&0xffffffff, ($x9+$j9)&0xffffffff, ($x10+$j10)&0xffffffff, ($x11+$j11)&0xffffffff,
+                ($x12+$j12)&0xffffffff, ($x13+$j13)&0xffffffff, ($x14+$j14)&0xffffffff, ($x15+$j15)&0xffffffff
+            );
+            // === End inlined Salsa20/8 ===
+
             $Y[$i] = $X;
         }
 
@@ -95,65 +136,5 @@ final class Scrypt
         }
 
         return $result;
-    }
-
-    /**
-     * Salsa20/8 core function.
-     */
-    private static function salsa208(string $input): string
-    {
-        $x = array_values(unpack('V16', $input));
-        $j = $x;
-
-        for ($round = 0; $round < 4; $round++) {
-            // Column round
-            $x[ 4] ^= self::rotl32($x[ 0] + $x[12],  7);
-            $x[ 8] ^= self::rotl32($x[ 4] + $x[ 0],  9);
-            $x[12] ^= self::rotl32($x[ 8] + $x[ 4], 13);
-            $x[ 0] ^= self::rotl32($x[12] + $x[ 8], 18);
-            $x[ 9] ^= self::rotl32($x[ 5] + $x[ 1],  7);
-            $x[13] ^= self::rotl32($x[ 9] + $x[ 5],  9);
-            $x[ 1] ^= self::rotl32($x[13] + $x[ 9], 13);
-            $x[ 5] ^= self::rotl32($x[ 1] + $x[13], 18);
-            $x[14] ^= self::rotl32($x[10] + $x[ 6],  7);
-            $x[ 2] ^= self::rotl32($x[14] + $x[10],  9);
-            $x[ 6] ^= self::rotl32($x[ 2] + $x[14], 13);
-            $x[10] ^= self::rotl32($x[ 6] + $x[ 2], 18);
-            $x[ 3] ^= self::rotl32($x[15] + $x[11],  7);
-            $x[ 7] ^= self::rotl32($x[ 3] + $x[15],  9);
-            $x[11] ^= self::rotl32($x[ 7] + $x[ 3], 13);
-            $x[15] ^= self::rotl32($x[11] + $x[ 7], 18);
-
-            // Row round
-            $x[ 1] ^= self::rotl32($x[ 0] + $x[ 3],  7);
-            $x[ 2] ^= self::rotl32($x[ 1] + $x[ 0],  9);
-            $x[ 3] ^= self::rotl32($x[ 2] + $x[ 1], 13);
-            $x[ 0] ^= self::rotl32($x[ 3] + $x[ 2], 18);
-            $x[ 6] ^= self::rotl32($x[ 5] + $x[ 4],  7);
-            $x[ 7] ^= self::rotl32($x[ 6] + $x[ 5],  9);
-            $x[ 4] ^= self::rotl32($x[ 7] + $x[ 6], 13);
-            $x[ 5] ^= self::rotl32($x[ 4] + $x[ 7], 18);
-            $x[11] ^= self::rotl32($x[10] + $x[ 9],  7);
-            $x[ 8] ^= self::rotl32($x[11] + $x[10],  9);
-            $x[ 9] ^= self::rotl32($x[ 8] + $x[11], 13);
-            $x[10] ^= self::rotl32($x[ 9] + $x[ 8], 18);
-            $x[12] ^= self::rotl32($x[15] + $x[14],  7);
-            $x[13] ^= self::rotl32($x[12] + $x[15],  9);
-            $x[14] ^= self::rotl32($x[13] + $x[12], 13);
-            $x[15] ^= self::rotl32($x[14] + $x[13], 18);
-        }
-
-        $out = '';
-        for ($i = 0; $i < 16; $i++) {
-            $out .= pack('V', ($x[$i] + $j[$i]) & 0xffffffff);
-        }
-
-        return $out;
-    }
-
-    private static function rotl32(int $v, int $n): int
-    {
-        $v &= 0xffffffff;
-        return (($v << $n) | ($v >> (32 - $n))) & 0xffffffff;
     }
 }
