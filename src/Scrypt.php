@@ -29,7 +29,9 @@ final class Scrypt
             throw new \InvalidArgumentException('N must be a power of 2 greater than 1');
         }
 
-        $B = hash_pbkdf2('sha256', $password, $salt, 1, $p * 128 * $r, true);
+        /** @var int<0, max> $pbkdf2Len */
+        $pbkdf2Len = $p * 128 * $r;
+        $B = hash_pbkdf2('sha256', $password, $salt, 1, $pbkdf2Len, true);
 
         for ($i = 0; $i < $p; $i++) {
             $block = substr($B, $i * 128 * $r, 128 * $r);
@@ -37,7 +39,9 @@ final class Scrypt
             $B = substr($B, 0, $i * 128 * $r) . $block . substr($B, ($i + 1) * 128 * $r);
         }
 
-        return hash_pbkdf2('sha256', $password, $B, 1, $dkLen, true);
+        /** @var int<0, max> $dkLenPositive */
+        $dkLenPositive = $dkLen;
+        return hash_pbkdf2('sha256', $password, $B, 1, $dkLenPositive, true);
     }
 
     private static function scryptROMix(string $B, int $r, int $N): string
@@ -52,7 +56,9 @@ final class Scrypt
         }
 
         for ($i = 0; $i < $N; $i++) {
-            $j = unpack('V', $X, $blockSize - 64)[1] & ($N - 1);
+            /** @var array{1: int} $integerify */
+            $integerify = unpack('V', $X, $blockSize - 64);
+            $j = $integerify[1] & ($N - 1);
             $X = self::scryptBlockMix($X ^ $V[$j], $r);
         }
 
@@ -73,7 +79,12 @@ final class Scrypt
             $T = $X ^ $chunk;
 
             // === Inlined Salsa20/8 core ===
-            [, $x0,$x1,$x2,$x3,$x4,$x5,$x6,$x7,$x8,$x9,$x10,$x11,$x12,$x13,$x14,$x15] = unpack('V16', $T);
+            /** @var array<int, int> $unpacked */
+            $unpacked = unpack('V16', $T);
+            $x0 = $unpacked[1]; $x1 = $unpacked[2]; $x2 = $unpacked[3]; $x3 = $unpacked[4];
+            $x4 = $unpacked[5]; $x5 = $unpacked[6]; $x6 = $unpacked[7]; $x7 = $unpacked[8];
+            $x8 = $unpacked[9]; $x9 = $unpacked[10]; $x10 = $unpacked[11]; $x11 = $unpacked[12];
+            $x12 = $unpacked[13]; $x13 = $unpacked[14]; $x14 = $unpacked[15]; $x15 = $unpacked[16];
             $j0=$x0; $j1=$x1; $j2=$x2; $j3=$x3; $j4=$x4; $j5=$x5; $j6=$x6; $j7=$x7;
             $j8=$x8; $j9=$x9; $j10=$x10; $j11=$x11; $j12=$x12; $j13=$x13; $j14=$x14; $j15=$x15;
 

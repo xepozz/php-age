@@ -11,13 +11,15 @@ final class X25519Recipient implements RecipientInterface
     public function __construct(string $recipient)
     {
         $decoded = Bech32::decodeToBytes($recipient);
-        if (strtolower($decoded['prefix']) !== 'age' || strlen($decoded['bytes']) !== 32) {
+        $prefix = $decoded['prefix'];
+        $bytes = $decoded['bytes'];
+        if (strtolower($prefix) !== 'age' || strlen($bytes) !== 32) {
             throw new \InvalidArgumentException('invalid recipient');
         }
         if (!str_starts_with($recipient, 'age1')) {
             throw new \InvalidArgumentException('invalid recipient');
         }
-        $this->recipientPublicKey = $decoded['bytes'];
+        $this->recipientPublicKey = $bytes;
     }
 
     public function wrapFileKey(string $fileKey): array

@@ -12,6 +12,9 @@ final class Bech32
     private const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
     private const GENERATOR = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
 
+    /**
+     * @param int[] $values
+     */
     private static function polymod(array $values): int
     {
         $chk = 1;
@@ -25,6 +28,9 @@ final class Bech32
         return $chk;
     }
 
+    /**
+     * @return int[]
+     */
     private static function hrpExpand(string $hrp): array
     {
         $ret = [];
@@ -39,11 +45,18 @@ final class Bech32
         return $ret;
     }
 
+    /**
+     * @param int[] $data
+     */
     private static function verifyChecksum(string $hrp, array $data): bool
     {
         return self::polymod(array_merge(self::hrpExpand($hrp), $data)) === 1;
     }
 
+    /**
+     * @param int[] $data
+     * @return int[]
+     */
     private static function createChecksum(string $hrp, array $data): array
     {
         $values = array_merge(self::hrpExpand($hrp), $data, [0, 0, 0, 0, 0, 0]);
@@ -55,6 +68,9 @@ final class Bech32
         return $ret;
     }
 
+    /**
+     * @param int[] $data
+     */
     public static function encode(string $hrp, array $data): string
     {
         $combined = array_merge($data, self::createChecksum($hrp, $data));
@@ -65,6 +81,9 @@ final class Bech32
         return $ret;
     }
 
+    /**
+     * @return array{hrp: string, data: int[]}
+     */
     public static function decode(string $bech): array
     {
         $len = strlen($bech);
@@ -78,7 +97,6 @@ final class Bech32
         $dataStr = substr($bech, $pos + 1);
 
         // Decode to lowercase for processing
-        $lowerBech = strtolower($bech);
         $lowerDataStr = strtolower($dataStr);
 
         $data = [];
@@ -104,7 +122,10 @@ final class Bech32
     }
 
     /**
-     * Convert 5-bit groups to 8-bit bytes.
+     * Convert between bit groups.
+     *
+     * @param int[] $data
+     * @return int[]
      */
     public static function convertBits(array $data, int $fromBits, int $toBits, bool $pad = true): array
     {
@@ -146,13 +167,20 @@ final class Bech32
      */
     public static function encodeFromBytes(string $hrp, string $bytes): string
     {
-        $data = array_values(unpack('C*', $bytes));
+        $unpacked = unpack('C*', $bytes);
+        if ($unpacked === false) {
+            throw new \InvalidArgumentException('Invalid bytes');
+        }
+        /** @var int[] $data */
+        $data = array_values($unpacked);
         $words = self::convertBits($data, 8, 5);
         return self::encode($hrp, $words);
     }
 
     /**
      * Decode bech32 string to raw bytes.
+     *
+     * @return array{prefix: string, bytes: string}
      */
     public static function decodeToBytes(string $bech): array
     {

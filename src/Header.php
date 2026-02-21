@@ -17,7 +17,6 @@ final class Header
     public static function parse(string $data): array
     {
         $pos = 0;
-        $lines = [];
 
         // Helper to read a line (up to \n)
         $readLine = function () use ($data, &$pos): ?string {
@@ -25,6 +24,7 @@ final class Header
             if ($nlPos === false) {
                 return null;
             }
+            /** @var int<0, max> $pos */
             $line = substr($data, $pos, $nlPos - $pos);
             $pos = $nlPos + 1;
             // Validate ASCII
@@ -57,6 +57,7 @@ final class Header
                 $macB64 = substr($argsLine, 4);
                 $mac = self::base64Decode($macB64);
 
+                /** @var int<0, max> $pos */
                 // headerNoMAC = everything up to "---" (not including the MAC value)
                 $headerNoMAC = substr($data, 0, $pos - strlen($argsLine) - 1) . '---';
                 $headerSize = $pos;
@@ -105,6 +106,8 @@ final class Header
 
     /**
      * Encode header stanzas without the MAC value.
+     *
+     * @param Stanza[] $stanzas
      */
     public static function encodeHeaderNoMAC(array $stanzas): string
     {
@@ -128,6 +131,8 @@ final class Header
 
     /**
      * Encode complete header with MAC.
+     *
+     * @param Stanza[] $stanzas
      */
     public static function encodeHeader(array $stanzas, string $mac): string
     {
