@@ -12,13 +12,15 @@ final class X25519Identity implements IdentityInterface
     public function __construct(string $identity)
     {
         $decoded = Bech32::decodeToBytes($identity);
-        if (strtoupper($decoded['prefix']) !== 'AGE-SECRET-KEY-' || strlen($decoded['bytes']) !== 32) {
+        $prefix = $decoded['prefix'];
+        $bytes = $decoded['bytes'];
+        if (strtoupper($prefix) !== 'AGE-SECRET-KEY-' || strlen($bytes) !== 32) {
             throw new \InvalidArgumentException('invalid identity');
         }
         if (!str_starts_with($identity, 'AGE-SECRET-KEY-1')) {
             throw new \InvalidArgumentException('invalid identity');
         }
-        $this->secretKey = $decoded['bytes'];
+        $this->secretKey = $bytes;
         $this->publicKey = sodium_crypto_scalarmult_base($this->secretKey);
     }
 
