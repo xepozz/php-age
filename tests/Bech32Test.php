@@ -108,6 +108,13 @@ class Bech32Test extends TestCase
         $this->assertSame([31, 28], $result);
     }
 
+    public function testEncodeFromBytesEmptyThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid bytes');
+        Bech32::encodeFromBytes('age', '');
+    }
+
     public function testEncodeDecodeSmallPayload(): void
     {
         $bytes = "\x01\x02";

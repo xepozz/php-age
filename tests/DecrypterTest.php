@@ -130,11 +130,13 @@ class DecrypterTest extends TestCase
         $e->addRecipient($recipient);
         $encrypted = $e->encrypt('test');
 
-        // Tamper with the MAC in the header
+        // Tamper with the MAC by replacing a base64 char with a different valid one
         $macLinePos = strpos($encrypted, '--- ');
         $macStart = $macLinePos + 4;
         $tampered = $encrypted;
-        $tampered[$macStart] = chr(ord($tampered[$macStart]) ^ 0x01);
+        // Swap the char to a different valid base64 char
+        $char = $tampered[$macStart];
+        $tampered[$macStart] = ($char === 'A') ? 'B' : 'A';
 
         $d = new Decrypter();
         $d->addIdentity($identity);
@@ -177,10 +179,11 @@ class DecrypterTest extends TestCase
         $headerEnd = strpos($encrypted, "\n", $macLinePos) + 1;
         $header = substr($encrypted, 0, $headerEnd);
 
-        // Tamper with the MAC
+        // Tamper with the MAC using a valid base64 char swap
         $macStart = $macLinePos + 4;
         $tampered = $header;
-        $tampered[$macStart] = chr(ord($tampered[$macStart]) ^ 0x01);
+        $char = $tampered[$macStart];
+        $tampered[$macStart] = ($char === 'A') ? 'B' : 'A';
 
         $d = new Decrypter();
         $d->addIdentity($identity);

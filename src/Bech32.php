@@ -167,10 +167,11 @@ final class Bech32
      */
     public static function encodeFromBytes(string $hrp, string $bytes): string
     {
-        $unpacked = unpack('C*', $bytes);
-        if ($unpacked === false) {
+        if ($bytes === '') {
             throw new \InvalidArgumentException('Invalid bytes');
         }
+        $unpacked = unpack('C*', $bytes);
+        assert($unpacked !== false);
         /** @var int[] $data */
         $data = array_values($unpacked);
         $words = self::convertBits($data, 8, 5);
